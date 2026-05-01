@@ -23,7 +23,10 @@
 <body>
 <h1>📷 Webcam Bridge</h1>
 <div id="st" class="st wait">⏳ Warte auf Foundry...</div>
-<div class="row">
+<div class="row" id="initRow">
+  <button id="findBtn" style="background:#2a7a4a;border-color:#3a5;font-weight:bold;">🔍 Kameras suchen (Erlaubnis geben)</button>
+</div>
+<div class="row" id="camRow" style="display:none;">
   <select id="dev"><option>Lade...</option></select>
   <button id="go">▶ Start</button>
   <button id="no">⏹ Stop</button>
@@ -33,11 +36,20 @@
 <div id="fps"></div>
 <script>
 const vid=document.getElementById('vid'),st=document.getElementById('st'),dev=document.getElementById('dev');
+const initRow=document.getElementById('initRow'),camRow=document.getElementById('camRow');
 let stream=null,timer=null,fc=0;
 const FPS=20,cv=document.createElement('canvas'),cx=cv.getContext('2d');
 const O=window.opener;
 
 function send(d){if(!O||O.closed)return;try{O.postMessage(d,'*')}catch(_){}}
+
+function setErr(msg) {
+  st.innerHTML='❌ '+msg; st.className='st err';
+}
+function setOk(msg) {
+  if (st.classList.contains('err')) return; 
+  st.innerHTML=msg; st.className='st ok';
+}
 
 async function loadDevs(){
   try{
@@ -45,9 +57,14 @@ async function loadDevs(){
     t.getTracks().forEach(t=>t.stop());
     const ds=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');
     dev.innerHTML=ds.map((d,i)=>`<option value="${d.deviceId}">${d.label||'Cam '+(i+1)}</option>`).join('');
-    st.textContent='✅ Kameras bereit'; st.className='st ok';
+    st.className=''; 
+    setOk('✅ Kameras gefunden! Bitte auswählen und "Start" klicken.');
+    initRow.style.display='none';
+    camRow.style.display='flex';
     send({source:'awcr-bridge',type:'devices',list:ds.map(d=>({id:d.deviceId,label:d.label}))});
-  }catch(e){st.textContent='❌ '+e.message;st.className='st err';}
+  }catch(e){
+    setErr(e.name === 'NotAllowedError' ? 'Browser blockiert Kamera! Erlaube den Zugriff oben links in der Adressleiste.' : e.message);
+  }
 }
 
 async function go(did){
@@ -60,15 +77,14 @@ async function go(did){
     timer=setInterval(()=>{
       if(!stream||!O||O.closed){no();return;}
       cx.drawImage(vid,0,0,cv.width,cv.height);
-      // Send as base64 (works cross-origin, no transfer issues)
-      const data=cv.toDataURL('image/jpeg',0.7);
+      const data=cv.toDataURL('image/jpeg',0.6);
       send({source:'awcr-bridge',type:'frame',img:data,w:cv.width,h:cv.height});
       fc++;
     },1000/FPS);
     document.getElementById('go').classList.add('on');
-    st.textContent='🔴 LIVE'; st.className='st ok';
+    st.className=''; setOk('🔴 LIVE – Kamera streamt an Foundry');
     send({source:'awcr-bridge',type:'started'});
-  }catch(e){st.textContent='❌ '+e.message;st.className='st err';}
+  }catch(e){setErr(e.message);}
 }
 
 function no(){
@@ -85,12 +101,16 @@ window.addEventListener('message',e=>{
   if(!e.data||e.data.source!=='awcr-foundry')return;
   if(e.data.type==='start')go(e.data.deviceId);
   if(e.data.type==='stop')no();
-  if(e.data.type==='ping'){send({source:'awcr-bridge',type:'pong'});st.textContent='✅ Foundry verbunden';st.className='st ok';}
+  if(e.data.type==='ping'){
+    send({source:'awcr-bridge',type:'pong'});
+    setOk('✅ Foundry verbunden – bereit!');
+  }
 });
 
+document.getElementById('findBtn').onclick=loadDevs;
 document.getElementById('go').onclick=()=>go(dev.value);
 document.getElementById('no').onclick=no;
-loadDevs();
+
 setTimeout(()=>send({source:'awcr-bridge',type:'ready'}),500);
 </script>
 </body>
