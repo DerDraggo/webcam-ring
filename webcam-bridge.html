@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Antigravity Webcam Bridge</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#1a1a2e;color:#eee;font-family:'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;padding:20px;min-height:100vh}
+  h1{font-size:18px;margin-bottom:12px;color:#ff69b4}
+  .st{font-size:13px;margin-bottom:12px;padding:8px 16px;border-radius:8px}
+  .st.ok{background:rgba(50,200,100,.2);border:1px solid #3a5;color:#7fa}
+  .st.err{background:rgba(200,50,50,.2);border:1px solid #a33;color:#faa}
+  .st.wait{background:rgba(200,200,50,.2);border:1px solid #aa3;color:#ffa}
+  select,button{padding:8px 16px;border-radius:6px;border:1px solid #444;background:#2a2a4e;color:#eee;font-size:13px;cursor:pointer;margin:4px}
+  button:hover{background:#3a3a6e}
+  button.on{background:#2a7a4a;border-color:#3a5}
+  video{margin-top:12px;border-radius:10px;border:2px solid #333;max-width:320px;background:#000}
+  .row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;justify-content:center}
+  .info{font-size:10px;color:#777;margin-top:16px;max-width:400px;text-align:center;line-height:1.5}
+  #fps{position:fixed;top:4px;right:8px;font-size:10px;color:#555}
+</style>
+</head>
+<body>
+<h1>📷 Webcam Bridge</h1>
+<div id="st" class="st wait">⏳ Warte auf Foundry...</div>
+<div class="row">
+  <select id="dev"><option>Lade...</option></select>
+  <button id="go">▶ Start</button>
+  <button id="no">⏹ Stop</button>
+</div>
+<video id="vid" muted playsinline autoplay></video>
+<div class="info">Fenster offen lassen! Sendet Frames an Foundry.</div>
+<div id="fps"></div>
+<script>
+const vid=document.getElementById('vid'),st=document.getElementById('st'),dev=document.getElementById('dev');
+let stream=null,timer=null,fc=0;
+const FPS=20,cv=document.createElement('canvas'),cx=cv.getContext('2d');
+const O=window.opener;
+
+function send(d){if(!O||O.closed)return;try{O.postMessage(d,'*')}catch(_){}}
+
+async function loadDevs(){
+  try{
+    const t=await navigator.mediaDevices.getUserMedia({video:true,audio:false});
+    t.getTracks().forEach(t=>t.stop());
+    const ds=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');
+    dev.innerHTML=ds.map((d,i)=>`<option value="${d.deviceId}">${d.label||'Cam '+(i+1)}</option>`).join('');
+    st.textContent='✅ Kameras bereit'; st.className='st ok';
+    send({source:'awcr-bridge',type:'devices',list:ds.map(d=>({id:d.deviceId,label:d.label}))});
+  }catch(e){st.textContent='❌ '+e.message;st.className='st err';}
+}
+
+async function go(did){
+  no();
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:did?{deviceId:{exact:did}}:true,audio:false});
+    vid.srcObject=stream; await vid.play();
+    await new Promise(r=>setTimeout(r,500));
+    cv.width=vid.videoWidth||640; cv.height=vid.videoHeight||480;
+    timer=setInterval(()=>{
+      if(!stream||!O||O.closed){no();return;}
+      cx.drawImage(vid,0,0,cv.width,cv.height);
+      // Send as base64 (works cross-origin, no transfer issues)
+      const data=cv.toDataURL('image/jpeg',0.7);
+      send({source:'awcr-bridge',type:'frame',img:data,w:cv.width,h:cv.height});
+      fc++;
+    },1000/FPS);
+    document.getElementById('go').classList.add('on');
+    st.textContent='🔴 LIVE'; st.className='st ok';
+    send({source:'awcr-bridge',type:'started'});
+  }catch(e){st.textContent='❌ '+e.message;st.className='st err';}
+}
+
+function no(){
+  if(timer){clearInterval(timer);timer=null;}
+  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}
+  vid.srcObject=null;
+  document.getElementById('go').classList.remove('on');
+  send({source:'awcr-bridge',type:'stopped'});
+}
+
+setInterval(()=>{document.getElementById('fps').textContent=fc+' fps';fc=0;},1000);
+
+window.addEventListener('message',e=>{
+  if(!e.data||e.data.source!=='awcr-foundry')return;
+  if(e.data.type==='start')go(e.data.deviceId);
+  if(e.data.type==='stop')no();
+  if(e.data.type==='ping'){send({source:'awcr-bridge',type:'pong'});st.textContent='✅ Foundry verbunden';st.className='st ok';}
+});
+
+document.getElementById('go').onclick=()=>go(dev.value);
+document.getElementById('no').onclick=no;
+loadDevs();
+setTimeout(()=>send({source:'awcr-bridge',type:'ready'}),500);
+</script>
+</body>
+</html>
