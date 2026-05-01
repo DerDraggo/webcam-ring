@@ -55,15 +55,21 @@ async function loadDevs(){
   try{
     const t=await navigator.mediaDevices.getUserMedia({video:true,audio:false});
     t.getTracks().forEach(t=>t.stop());
+  }catch(e){
+    // Kamera evtl. in Use von Discord - wir machen trotzdem weiter!
+    console.warn("Standard-Kamera blockiert, lade Liste trotzdem:", e);
+  }
+  
+  try {
     const ds=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');
-    dev.innerHTML=ds.map((d,i)=>`<option value="${d.deviceId}">${d.label||'Cam '+(i+1)}</option>`).join('');
+    dev.innerHTML=ds.map((d,i)=>`<option value="${d.deviceId}">${d.label||'Kamera '+(i+1)}</option>`).join('');
     st.className=''; 
     setOk('✅ Kameras gefunden! Bitte auswählen und "Start" klicken.');
     initRow.style.display='none';
     camRow.style.display='flex';
     send({source:'awcr-bridge',type:'devices',list:ds.map(d=>({id:d.deviceId,label:d.label}))});
   }catch(e){
-    setErr(e.name === 'NotAllowedError' ? 'Browser blockiert Kamera! Erlaube den Zugriff oben links in der Adressleiste.' : e.message);
+    setErr(e.name === 'NotAllowedError' ? 'Browser blockiert Kamera! Erlaube den Zugriff oben.' : e.message);
   }
 }
 
